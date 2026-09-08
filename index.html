@@ -220,24 +220,46 @@ function sortedPeople(c){return [...db.people].filter(p=>!c||p.cat===c).sort((a,
 /* ---------- 실시간 공유(구글 앱스 스크립트) ---------- */
 let API=localStorage.getItem(APIKEY)||'';
 (()=>{const u=new URL(location.href).searchParams.get('api');if(u&&/^https:\/\/script\.google\.com\//.test(u)){API=u;localStorage.setItem(APIKEY,u);history.replaceState(null,'',location.pathname);}})();
-let pollT=null,inflight=0;
+let pollT=null,inflight=0,pending=new Map(),lastLocal=0;
+function markPending(k,v){pending.set(k,{v,t:Date.now()});lastLocal=Date.now();}
+function mergePending(d){
+  const now=Date.now();
+  pending.forEach((o,k)=>{
+    if(now-o.t>20000){pending.delete(k);return;}
+    if(k==='__event'){d.event=o.v;return;}
+    if(k.startsWith('P|')){const p=o.v;const i=d.people.findIndex(x=>x.id===p.id);if(p.__del){if(i>=0)d.people.splice(i,1);}else if(i>=0)d.people[i]=p;else d.people.push(p);return;}
+    const [_,date,id]=k.split('|');
+    if(!o.v||!Object.keys(o.v).length){if(d.att[date])delete d.att[date][id];}
+    else{(d.att[date]=d.att[date]||{})[id]=o.v;}
+  });
+  return d;
+}
+function clearPending(k){pending.delete(k);}
 function setSync(cls,msg){const e=$('sync');e.className='sync '+cls;e.textContent=msg;}
-async function api(action,payload){
+async function api(action,payload,key){
   if(!API)return null;
   inflight++;setSync('busy','저장 중…');
   try{
     const res=await fetch(API,{method:'POST',body:JSON.stringify({action,...payload})});
     const j=await res.json();if(j.error)throw new Error(j.error);
+    if(key)clearPending(key);
     applyRemote(j);setSync('ok','공유 연결됨 · '+nowStr()+' 동기화');return j;
-  }catch(e){setSync('err','공유 저장 실패 — 이 기기에만 저장됨('+e.message+')');toast('공유 저장 실패, 인터넷 확인');return null;}
+  }catch(e){setSync('err','저장 실패 — 잠시 뒤 자동 재시도');toast('저장 실패, 인터넷 확인');return null;}
   finally{inflight--;}
 }
 async function pull(){
-  if(!API||inflight>0||document.hidden)return;
+  if(!API||inflight>0||document.hidden||Date.now()-lastLocal<3000)return;
   try{const res=await fetch(API+'?t='+Date.now());const j=await res.json();if(j.error)throw new Error(j.error);applyRemote(j);setSync('ok','공유 연결됨 · '+nowStr()+' 동기화');}
   catch(e){setSync('err','공유 서버 연결 안 됨 — 이 기기 저장본 표시 중');}
 }
-function applyRemote(j){const d=normalize(j);const changed=JSON.stringify(d)!==JSON.stringify(db);db=d;save();if(changed){$('eventInput').value=db.event;$('eventName').textContent=db.event;render();}}
+function applyRemote(j){
+  const d=mergePending(normalize(j));const changed=JSON.stringify(d)!==JSON.stringify(db);db=d;save();
+  if(!changed)return;
+  const a=document.activeElement;
+  if(a&&(a.classList.contains('tm')||a.classList.contains('memo')||a.tagName==='TEXTAREA'))return;
+  if($('eventInput')!==a)$('eventInput').value=db.event;
+  $('eventName').textContent=db.event;render();
+}
 function startPoll(){clearInterval(pollT);if(API){pull();pollT=setInterval(pull,5000);}}
 document.addEventListener('visibilitychange',()=>{if(!document.hidden)pull();});
 $('apiInput').value=API;
@@ -262,7 +284,7 @@ document.querySelectorAll('nav button').forEach(b=>b.onclick=()=>{
 
 /* ---------- 날짜·행사명 ---------- */
 $('date').value=todayStr();$('eventInput').value=db.event;$('eventName').textContent=db.event;
-$('eventInput').addEventListener('change',e=>{db.event=e.target.value.trim();save();$('eventName').textContent=db.event;api('setEvent',{event:db.event});});
+$('eventInput').addEventListener('change',e=>{db.event=e.target.value.trim();save();$('eventName').textContent=db.event;markPending('__event',db.event);api('setEvent',{event:db.event},'__event');});
 function shiftDay(n){const d=new Date($('date').value+'T00:00');d.setDate(d.getDate()+n);$('date').value=`${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;render();}
 $('prevDay').onclick=()=>shiftDay(-1);$('nextDay').onclick=()=>shiftDay(1);$('todayBtn').onclick=()=>{$('date').value=todayStr();render();};
 $('date').onchange=render;$('q').oninput=render;$('groupFilter').onchange=render;$('statusFilter').onchange=render;
@@ -274,11 +296,11 @@ function addPerson(c,name,group,area,phone){
   const p={id:uid(),cat:c,name,group,area:(area||'').trim(),phone:(phone||'').trim()};db.people.push(p);return p;
 }
 $('addBtn').onclick=()=>{const p=addPerson($('nCat').value,$('nName').value,$('nGroup').value,$('nArea').value,$('nPhone').value);
-  if(p){['nName','nGroup','nArea','nPhone'].forEach(i=>$(i).value='');save();render();toast('추가됨');$('nName').focus();api('upsertPeople',{people:[p]});}else toast('이름이 없거나 이미 등록된 사람');};
+  if(p){['nName','nGroup','nArea','nPhone'].forEach(i=>$(i).value='');save();render();toast('추가됨');$('nName').focus();markPending('P|'+p.id,p);api('upsertPeople',{people:[p]},'P|'+p.id);}else toast('이름이 없거나 이미 등록된 사람');};
 $('nName').addEventListener('keydown',e=>{if(e.key==='Enter')$('addBtn').click();});
 $('bulkBtn').onclick=()=>{const lines=$('bulk').value.split(/\r?\n/).map(l=>l.trim()).filter(Boolean);const added=[];
   lines.forEach(l=>{const c=l.split(/\t|,|\s{2,}/).map(s=>s.trim());const p=addPerson($('bulkCat').value,c[0],c[1],c[2],c[3]);if(p)added.push(p);});
-  $('bulk').value='';save();render();toast(`${added.length}명 추가됨`);if(added.length)api('upsertPeople',{people:added});};
+  $('bulk').value='';save();render();toast(`${added.length}명 추가됨`);if(added.length){added.forEach(p=>markPending('P|'+p.id,p));api('upsertPeople',{people:added});}};
 function renderRoster(){
   $('rosterCount').textContent=`(${db.people.length}명)`;
   if(!db.people.length){$('roster').innerHTML='<div class="empty">등록된 봉사자 없음</div>';return;}
@@ -287,8 +309,8 @@ function renderRoster(){
 $('roster').addEventListener('click',e=>{const b=e.target.closest('button[data-edit2]');if(b)openEdit(b.dataset.edit2);});
 function openEdit(id){const p=db.people.find(x=>x.id===id);if(!p)return;$('eId').value=id;$('eCat').value=p.cat;$('eName').value=p.name;$('eGroup').value=p.group;$('eArea').value=p.area;$('ePhone').value=p.phone;$('editDlg').showModal();}
 $('eCancel').onclick=()=>$('editDlg').close();
-$('editDlg').querySelector('form').addEventListener('submit',()=>{const p=db.people.find(x=>x.id===$('eId').value);if(!p)return;p.cat=$('eCat').value;p.name=$('eName').value.trim();p.group=$('eGroup').value.trim();p.area=$('eArea').value.trim();p.phone=$('ePhone').value.trim();save();render();toast('저장됨');api('upsertPeople',{people:[p]});});
-$('eDelete').onclick=()=>{const id=$('eId').value,p=db.people.find(x=>x.id===id);if(!confirm(`${p.name}을(를) 명단에서 삭제할까? 출석 기록도 함께 삭제됨.`))return;db.people=db.people.filter(x=>x.id!==id);Object.values(db.att).forEach(d=>delete d[id]);save();$('editDlg').close();render();toast('삭제됨');api('deletePerson',{id});};
+$('editDlg').querySelector('form').addEventListener('submit',()=>{const p=db.people.find(x=>x.id===$('eId').value);if(!p)return;p.cat=$('eCat').value;p.name=$('eName').value.trim();p.group=$('eGroup').value.trim();p.area=$('eArea').value.trim();p.phone=$('ePhone').value.trim();save();render();toast('저장됨');markPending('P|'+p.id,JSON.parse(JSON.stringify(p)));api('upsertPeople',{people:[p]},'P|'+p.id);});
+$('eDelete').onclick=()=>{const id=$('eId').value,p=db.people.find(x=>x.id===id);if(!confirm(`${p.name}을(를) 명단에서 삭제할까? 출석 기록도 함께 삭제됨.`))return;db.people=db.people.filter(x=>x.id!==id);Object.values(db.att).forEach(d=>delete d[id]);save();$('editDlg').close();render();toast('삭제됨');markPending('P|'+id,{id,__del:1});api('deletePerson',{id},'P|'+id);};
 
 /* ---------- 출석 현황 ---------- */
 function render(){
@@ -310,7 +332,11 @@ function render(){
   h+='</tbody></table>';if(!rows.length)h='<div class="empty">조건에 맞는 봉사자가 없음</div>';
   $('list').innerHTML=h;renderRoster();
 }
-function pushAtt(date,id){const r=db.att[date]&&db.att[date][id];api('upsertAtt',{date,id,record:r&&Object.keys(r).length?r:null});}
+function pushAtt(date,id){
+  const r=db.att[date]&&db.att[date][id];const rec=r&&Object.keys(r).length?JSON.parse(JSON.stringify(r)):null;
+  const key='A|'+date+'|'+id;markPending(key,rec);
+  api('upsertAtt',{date,id,record:rec},key);
+}
 $('list').addEventListener('click',e=>{
   const b=e.target.closest('button[data-act]');
   if(b){const id=b.closest('tr').dataset.id,date=$('date').value,r=rec(date,id),p=db.people.find(x=>x.id===id);
@@ -375,8 +401,8 @@ $('xlsAll').onclick=()=>{
 };
 $('backupBtn').onclick=()=>download(`출석백업_${todayStr()}.json`,new Blob([JSON.stringify(db,null,1)],{type:'application/json'}));
 $('restoreBtn').onclick=()=>$('restoreFile').click();
-$('restoreFile').onchange=e=>{const f=e.target.files[0];if(!f)return;const rd=new FileReader();rd.onload=()=>{try{const d=normalize(JSON.parse(rd.result));if(!confirm(API?'백업 파일 내용으로 시트 전체를 바꿀까? 모든 기기에 반영됨.':'현재 데이터를 백업 파일 내용으로 바꿀까?'))return;db=d;save();$('eventInput').value=db.event;$('eventName').textContent=db.event;render();toast('불러옴');api('replaceAll',{data:db});}catch(_){toast('백업 파일 형식이 아님');}};rd.readAsText(f);e.target.value='';};
-$('wipeBtn').onclick=()=>{if(confirm(API?'시트를 포함해 명단과 모든 출석 기록을 삭제할까? 모든 기기에서 사라짐.':'명단과 모든 출석 기록을 삭제할까? 되돌릴 수 없음.')&&confirm('정말 삭제?')){db=normalize(null);save();$('eventInput').value='';$('eventName').textContent='';render();api('replaceAll',{data:db});}};
+$('restoreFile').onchange=e=>{const f=e.target.files[0];if(!f)return;const rd=new FileReader();rd.onload=()=>{try{const d=normalize(JSON.parse(rd.result));if(!confirm(API?'백업 파일 내용으로 시트 전체를 바꿀까? 모든 기기에 반영됨.':'현재 데이터를 백업 파일 내용으로 바꿀까?'))return;db=d;save();$('eventInput').value=db.event;$('eventName').textContent=db.event;render();toast('불러옴');pending.clear();api('replaceAll',{data:db});}catch(_){toast('백업 파일 형식이 아님');}};rd.readAsText(f);e.target.value='';};
+$('wipeBtn').onclick=()=>{if(confirm(API?'시트를 포함해 명단과 모든 출석 기록을 삭제할까? 모든 기기에서 사라짐.':'명단과 모든 출석 기록을 삭제할까? 되돌릴 수 없음.')&&confirm('정말 삭제?')){db=normalize(null);save();$('eventInput').value='';$('eventName').textContent='';render();pending.clear();api('replaceAll',{data:db});}};
 
 render();startPoll();
 if('serviceWorker'in navigator&&location.protocol==='https:')navigator.serviceWorker.register('sw.js').catch(()=>{});
