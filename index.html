@@ -240,8 +240,16 @@ async function api(action,payload,key){
   if(!API)return null;
   inflight++;setSync('busy','저장 중…');
   try{
-    const res=await fetch(API,{method:'POST',body:JSON.stringify({action,...payload})});
-    const j=await res.json();if(j.error)throw new Error(j.error);
+    const body=JSON.stringify({action,...payload});
+    let j;
+    try{
+      const res=await fetch(API,{method:'POST',body});
+      j=await res.json();
+    }catch(_){
+      const res2=await fetch(API+'?payload='+encodeURIComponent(body)+'&t='+Date.now());
+      j=await res2.json();
+    }
+    if(j.error)throw new Error(j.error);
     if(key)clearPending(key);
     applyRemote(j);setSync('ok','공유 연결됨 · '+nowStr()+' 동기화');return j;
   }catch(e){setSync('err','저장 실패 — 잠시 뒤 자동 재시도');toast('저장 실패, 인터넷 확인');return null;}

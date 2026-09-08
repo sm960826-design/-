@@ -14,13 +14,20 @@ function sheet(name, head) {
 }
 function json(o) { return ContentService.createTextOutput(JSON.stringify(o)).setMimeType(ContentService.MimeType.JSON); }
 
-function doGet() { return json(getAll()); }
+function doGet(e) {
+  // 일부 모바일 브라우저에서 POST가 막히는 경우를 위한 우회 경로
+  var payload = e && e.parameter && e.parameter.payload;
+  if (payload) return handle(payload);
+  return json(getAll());
+}
 
-function doPost(e) {
+function doPost(e) { return handle(e.postData.contents || '{}'); }
+
+function handle(raw) {
   const lock = LockService.getScriptLock();
   try {
     lock.waitLock(15000);
-    const b = JSON.parse(e.postData.contents || '{}');
+    const b = JSON.parse(raw);
     switch (b.action) {
       case 'upsertPeople': upsertPeople(b.people || []); break;
       case 'deletePerson': deletePerson(b.id); break;
