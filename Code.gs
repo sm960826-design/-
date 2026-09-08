@@ -1,0 +1,114 @@
+/* 자원봉사자 출석체크 — 구글 시트 저장용 스크립트
+ * 이 파일 전체를 Apps Script 편집기에 붙여넣고 "웹 앱"으로 배포하면 됨.
+ * 시트는 처음 접속 때 자동으로 만들어짐: 명단 / 출석 / 설정
+ */
+const SHEETS = { people: '명단', att: '출석', cfg: '설정' };
+const P_HEAD = ['id', 'cat', 'name', 'group', 'area', 'phone'];
+const A_HEAD = ['key', 'date', 'id', 'in', 'out', 'absent', 'memo'];
+
+function ss() { return SpreadsheetApp.getActiveSpreadsheet(); }
+function sheet(name, head) {
+  let sh = ss().getSheetByName(name);
+  if (!sh) { sh = ss().insertSheet(name); sh.appendRow(head); sh.setFrozenRows(1); }
+  return sh;
+}
+function json(o) { return ContentService.createTextOutput(JSON.stringify(o)).setMimeType(ContentService.MimeType.JSON); }
+
+function doGet() { return json(getAll()); }
+
+function doPost(e) {
+  const lock = LockService.getScriptLock();
+  try {
+    lock.waitLock(15000);
+    const b = JSON.parse(e.postData.contents || '{}');
+    switch (b.action) {
+      case 'upsertPeople': upsertPeople(b.people || []); break;
+      case 'deletePerson': deletePerson(b.id); break;
+      case 'upsertAtt': upsertAtt(b.date, b.id, b.record); break;
+      case 'setEvent': setEvent(b.event || ''); break;
+      case 'replaceAll': replaceAll(b.data || {}); break;
+      default: return json({ error: 'unknown action: ' + b.action });
+    }
+    return json(getAll());
+  } catch (err) {
+    return json({ error: String(err) });
+  } finally {
+    try { lock.releaseLock(); } catch (_) {}
+  }
+}
+
+/* ---------- 읽기 ---------- */
+function getAll() {
+  const ps = sheet(SHEETS.people, P_HEAD), as = sheet(SHEETS.att, A_HEAD), cs = sheet(SHEETS.cfg, ['key', 'value']);
+  const people = rows(ps).map(r => ({ id: s(r[0]), cat: s(r[1]), name: s(r[2]), group: s(r[3]), area: s(r[4]), phone: s(r[5]) })).filter(p => p.id && p.name);
+  const att = {};
+  rows(as).forEach(r => {
+    const date = s(r[1]), id = s(r[2]); if (!date || !id) return;
+    const rec = {};
+    if (s(r[3])) rec.in = s(r[3]);
+    if (s(r[4])) rec.out = s(r[4]);
+    if (s(r[5]) === 'Y') rec.absent = true;
+    if (s(r[6])) rec.memo = s(r[6]);
+    if (!Object.keys(rec).length) return;
+    (att[date] = att[date] || {})[id] = rec;
+  });
+  let event = '';
+  rows(cs).forEach(r => { if (s(r[0]) === 'event') event = s(r[1]); });
+  return { event, people, att, updated: new Date().toISOString() };
+}
+function rows(sh) { const n = sh.getLastRow(); return n < 2 ? [] : sh.getRange(2, 1, n - 1, sh.getLastColumn()).getValues(); }
+function s(v) {
+  if (v === null || v === undefined) return '';
+  if (v instanceof Date) return Utilities.formatDate(v, Session.getScriptTimeZone(), 'HH:mm');
+  return String(v).trim();
+}
+
+/* ---------- 쓰기 ---------- */
+function upsertPeople(list) {
+  const sh = sheet(SHEETS.people, P_HEAD), data = rows(sh);
+  const idx = {}; data.forEach((r, i) => { idx[s(r[0])] = i + 2; });
+  list.forEach(p => {
+    const row = [p.id, p.cat || '', p.name || '', p.group || '', p.area || '', p.phone || ''];
+    if (idx[p.id]) sh.getRange(idx[p.id], 1, 1, P_HEAD.length).setValues([row]);
+    else sh.appendRow(row);
+  });
+}
+function deletePerson(id) {
+  const ps = sheet(SHEETS.people, P_HEAD), as = sheet(SHEETS.att, A_HEAD);
+  deleteRowsWhere(ps, r => s(r[0]) === id);
+  deleteRowsWhere(as, r => s(r[2]) === id);
+}
+function upsertAtt(date, id, rec) {
+  const sh = sheet(SHEETS.att, A_HEAD), key = date + '|' + id, data = rows(sh);
+  let at = -1; data.forEach((r, i) => { if (s(r[0]) === key) at = i + 2; });
+  if (!rec) { if (at > 0) sh.deleteRow(at); return; }
+  const row = [key, date, id, rec.in || '', rec.out || '', rec.absent ? 'Y' : '', rec.memo || ''];
+  if (at > 0) sh.getRange(at, 1, 1, A_HEAD.length).setValues([row]);
+  else sh.appendRow(row);
+  // 시각 칸이 날짜로 자동 변환되지 않도록 텍스트 서식
+  const r = at > 0 ? at : sh.getLastRow();
+  sh.getRange(r, 4, 1, 2).setNumberFormat('@');
+}
+function setEvent(v) {
+  const sh = sheet(SHEETS.cfg, ['key', 'value']), data = rows(sh);
+  let at = -1; data.forEach((r, i) => { if (s(r[0]) === 'event') at = i + 2; });
+  if (at > 0) sh.getRange(at, 2).setValue(v); else sh.appendRow(['event', v]);
+}
+function replaceAll(d) {
+  const ps = sheet(SHEETS.people, P_HEAD), as = sheet(SHEETS.att, A_HEAD);
+  clearBody(ps); clearBody(as);
+  const people = (d.people || []).map(p => [p.id, p.cat || '', p.name || '', p.group || '', p.area || '', p.phone || '']);
+  if (people.length) ps.getRange(2, 1, people.length, P_HEAD.length).setValues(people);
+  const att = [];
+  Object.keys(d.att || {}).forEach(date => Object.keys(d.att[date]).forEach(id => {
+    const r = d.att[date][id] || {}; if (!Object.keys(r).length) return;
+    att.push([date + '|' + id, date, id, r.in || '', r.out || '', r.absent ? 'Y' : '', r.memo || '']);
+  }));
+  if (att.length) { as.getRange(2, 1, att.length, A_HEAD.length).setNumberFormat('@').setValues(att); }
+  setEvent(d.event || '');
+}
+function clearBody(sh) { const n = sh.getLastRow(); if (n > 1) sh.deleteRows(2, n - 1); }
+function deleteRowsWhere(sh, pred) {
+  const data = rows(sh);
+  for (let i = data.length - 1; i >= 0; i--) if (pred(data[i])) sh.deleteRow(i + 2);
+}
