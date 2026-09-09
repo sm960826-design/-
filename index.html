@@ -8,8 +8,7 @@
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="icon-192.png">
 <link rel="apple-touch-icon" href="icon-192.png">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css">
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <style>
@@ -18,14 +17,14 @@
     --in:#1f3864;--in-deep:#152845;--in-soft:#e8edf6;--in-ink:#ffffff;
     --out:#5b8db8;--out-deep:#446f93;--out-soft:#eaf2f8;--out-ink:#ffffff;
     --abs:#c0392b;--abs-soft:#fbeae8;--abs-ink:#ffffff;
-    --head:"Malgun Gothic","맑은 고딕",AppleSDGothicNeo-Regular,sans-serif;
-    --body:"Malgun Gothic","맑은 고딕",AppleSDGothicNeo-Regular,sans-serif;
+    --head:"Pretendard","Malgun Gothic","맑은 고딕",AppleSDGothicNeo-Regular,sans-serif;
+    --body:"Pretendard","Malgun Gothic","맑은 고딕",AppleSDGothicNeo-Regular,sans-serif;
   }
   *{box-sizing:border-box}
   html{background:var(--bg)}
-  body{margin:0;font-family:var(--body);font-weight:700;color:var(--ink);background:var(--bg);font-size:17px;line-height:1.45}
+  body{margin:0;font-family:var(--body);font-weight:700;letter-spacing:-.01em;color:var(--ink);background:var(--bg);font-size:17px;line-height:1.45}
   header{display:flex;flex-wrap:wrap;align-items:center;gap:10px 22px;padding:14px 24px;background:#fff;border-bottom:4px solid var(--in)}
-  header h1{font-family:var(--head);font-size:23px;font-weight:800;margin:0;font-weight:400;letter-spacing:-.01em}
+  header h1{font-family:var(--head);font-size:24px;font-weight:900;margin:0;font-weight:400;letter-spacing:-.01em}
   header h1 small{font-family:var(--body);font-weight:700;color:var(--muted);margin-left:10px;font-size:14px}
   .stats{display:flex;gap:8px;flex-wrap:wrap}
   .stat{padding:6px 14px;border-radius:12px;background:var(--bg);font-size:14px;font-weight:700;color:var(--ink);border:2px solid var(--line)}
@@ -34,14 +33,14 @@
   .datebar{display:flex;align-items:center;gap:6px;margin-left:auto}
   .datebar input[type=date]{font:inherit;font-family:var(--body);font-size:16px;padding:6px 10px;border:2px solid var(--line2);border-radius:10px;background:#fff;color:var(--ink)}
   nav{display:flex;gap:8px;background:#fff;padding:12px 24px;border-bottom:2px solid var(--line)}
-  nav button{flex:1;max-width:220px;border:2px solid var(--line2);border-radius:14px;background:#fff;padding:12px 10px;font-family:var(--head);font-weight:700;font-size:18px;font-weight:400;color:var(--muted)}
+  nav button{flex:1;max-width:220px;border:2px solid var(--line2);border-radius:14px;background:#fff;padding:12px 10px;font-family:var(--head);font-weight:800;font-size:18px;font-weight:400;color:var(--muted)}
   nav button.on{background:var(--in);color:#fff;border-color:var(--in)}
   nav button:hover{background:var(--in-soft);color:var(--ink)}nav button.on:hover{background:var(--in-deep);color:#fff}
   .tab{display:none;padding:20px 24px}.tab.on{display:block}
   input[type=text],input[type=search],select,textarea{font:inherit;padding:10px 12px;border:2px solid var(--line2);border-radius:10px;background:#fff;color:var(--ink)}
   textarea{width:100%;min-height:110px;resize:vertical}
   ::placeholder{color:#b3a999}
-  button{font:inherit;font-family:var(--head);font-weight:400;padding:8px 16px;border:2px solid var(--line2);border-radius:12px;background:#fff;color:var(--ink);cursor:pointer;font-size:16px;font-weight:700;line-height:1.3}
+  button{font:inherit;font-family:var(--head);font-weight:400;padding:8px 16px;border:2px solid var(--line2);border-radius:12px;background:#fff;color:var(--ink);cursor:pointer;font-size:16px;font-weight:800;line-height:1.3}
   button:hover{background:var(--bg)}
   button:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid var(--in);outline-offset:1px}
   button.primary{background:var(--ink);border-color:var(--ink);color:#fff}button.primary:hover{background:#000}
@@ -57,7 +56,7 @@
   tr:last-child td{border-bottom:none}
   .tab{background:#fff}
   th{background:#f7f5f0;font-weight:800;font-size:13.5px;color:#5f5952;position:sticky;top:0;z-index:1}
-  td.name{font-family:var(--head);font-weight:800;font-size:19px;white-space:nowrap}
+  td.name{font-family:var(--head);font-weight:800;font-size:20px;white-space:nowrap}
   td.name a{color:inherit;text-decoration:none}
   td.name::before{content:"";display:inline-block;width:12px;height:12px;border-radius:50%;margin-right:10px;vertical-align:1px;background:#d9d2c5}
   tr.status-in td.name::before{background:var(--in)}tr.status-out td.name::before{background:var(--out)}
