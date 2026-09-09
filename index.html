@@ -14,7 +14,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <style>
   :root{
-    --bg:#ffffff;--card:#ffffff;--line:#e8e4dc;--line2:#cfc9bd;--ink:#2b2622;--muted:#8a8074;
+    --bg:#ffffff;--card:#ffffff;--line:#e8e4dc;--line2:#cfc9bd;--ink:#2b2622;--muted:#6f6a63;
     --in:#1f3864;--in-deep:#152845;--in-soft:#e8edf6;--in-ink:#ffffff;
     --out:#5b8db8;--out-deep:#446f93;--out-soft:#eaf2f8;--out-ink:#ffffff;
     --abs:#c0392b;--abs-soft:#fbeae8;--abs-ink:#ffffff;
@@ -23,13 +23,13 @@
   }
   *{box-sizing:border-box}
   html{background:var(--bg)}
-  body{margin:0;font-family:var(--body);font-weight:500;color:var(--ink);background:var(--bg);font-size:17px;line-height:1.45}
+  body{margin:0;font-family:var(--body);font-weight:700;color:var(--ink);background:var(--bg);font-size:17px;line-height:1.45}
   header{display:flex;flex-wrap:wrap;align-items:center;gap:10px 22px;padding:14px 24px;background:#fff;border-bottom:4px solid var(--in)}
-  header h1{font-family:var(--head);font-size:23px;font-weight:700;margin:0;font-weight:400;letter-spacing:-.01em}
-  header h1 small{font-family:var(--body);font-weight:500;color:var(--muted);margin-left:10px;font-size:14px}
+  header h1{font-family:var(--head);font-size:23px;font-weight:800;margin:0;font-weight:400;letter-spacing:-.01em}
+  header h1 small{font-family:var(--body);font-weight:700;color:var(--muted);margin-left:10px;font-size:14px}
   .stats{display:flex;gap:8px;flex-wrap:wrap}
-  .stat{padding:6px 14px;border-radius:12px;background:var(--bg);font-size:14px;color:var(--muted);border:2px solid var(--line)}
-  .stat b{font-family:var(--head);font-weight:700;font-size:23px;margin-left:8px;color:var(--ink)}
+  .stat{padding:6px 14px;border-radius:12px;background:var(--bg);font-size:14px;font-weight:700;color:var(--ink);border:2px solid var(--line)}
+  .stat b{font-family:var(--head);font-weight:800;font-size:23px;margin-left:8px;color:var(--ink)}
   .stat.warn{background:var(--in-soft);border-color:#c3cee2}.stat.off{background:var(--abs-soft);border-color:#eec4bf}
   .datebar{display:flex;align-items:center;gap:6px;margin-left:auto}
   .datebar input[type=date]{font:inherit;font-family:var(--body);font-size:16px;padding:6px 10px;border:2px solid var(--line2);border-radius:10px;background:#fff;color:var(--ink)}
@@ -56,8 +56,8 @@
   th,td{padding:12px 10px;border-bottom:1px solid var(--line);text-align:left;vertical-align:middle}
   tr:last-child td{border-bottom:none}
   .tab{background:#fff}
-  th{background:#f7f5f0;font-weight:700;font-size:13px;color:var(--muted);position:sticky;top:0;z-index:1}
-  td.name{font-family:var(--head);font-weight:700;font-size:19px;white-space:nowrap}
+  th{background:#f7f5f0;font-weight:800;font-size:13.5px;color:#5f5952;position:sticky;top:0;z-index:1}
+  td.name{font-family:var(--head);font-weight:800;font-size:19px;white-space:nowrap}
   td.name a{color:inherit;text-decoration:none}
   td.name::before{content:"";display:inline-block;width:12px;height:12px;border-radius:50%;margin-right:10px;vertical-align:1px;background:#d9d2c5}
   tr.status-in td.name::before{background:var(--in)}tr.status-out td.name::before{background:var(--out)}
@@ -65,12 +65,12 @@
   tr.status-in{background:#f4f7fc}tr.status-out{background:#f7fafc}
   td.acts{white-space:nowrap}td.acts button{margin-right:6px;min-width:66px}
   td.time{white-space:nowrap}
-  input.tm{font:inherit;font-family:var(--head);font-weight:700;font-size:18px;font-variant-numeric:tabular-nums;padding:6px 6px;width:120px;min-width:120px;border:2px solid transparent;border-radius:10px;background:transparent;color:var(--ink)}
+  input.tm{font:inherit;font-family:var(--head);font-weight:800;font-size:18px;font-variant-numeric:tabular-nums;padding:6px 6px;width:120px;min-width:120px;border:2px solid transparent;border-radius:10px;background:transparent;color:var(--ink)}
   input.tm:hover{border-color:var(--line2);background:#fff}input.tm:focus{border-color:var(--in);background:#fff}
   input.tm:disabled{opacity:.35}input.tm::-webkit-calendar-picker-indicator{opacity:.35}
-  td input.memo{width:100%;min-width:90px;padding:6px 8px;font-size:15px;border-radius:8px}
+  td input.memo{width:100%;min-width:90px;padding:6px 8px;font-size:15px;font-weight:600;border-radius:8px}
   .empty{padding:48px;text-align:center;color:var(--muted);background:var(--card);border:2px dashed var(--line2);border-radius:14px;font-size:17px}
-  .hint{font-size:14px;color:var(--muted);margin:6px 0 0}
+  .hint{font-size:14px;font-weight:500;color:#6f6a63;margin:6px 0 0}
   .toast{position:fixed;left:50%;bottom:28px;transform:translateX(-50%);background:var(--ink);color:#fff;padding:12px 20px;border-radius:12px;font-family:var(--head);font-weight:700;font-size:17px;opacity:0;transition:opacity .2s;pointer-events:none;z-index:50}
   .toast.show{opacity:1}
   .sync{font-size:13px;color:var(--muted);display:flex;align-items:center;gap:6px}
