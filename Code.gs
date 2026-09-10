@@ -10,6 +10,8 @@ function ss() { return SpreadsheetApp.getActiveSpreadsheet(); }
 function sheet(name, head) {
   let sh = ss().getSheetByName(name);
   if (!sh) { sh = ss().insertSheet(name); sh.appendRow(head); sh.setFrozenRows(1); }
+  // 날짜·시각이 자동 변환되지 않도록 항상 텍스트 서식 유지
+  sh.getRange(1, 1, sh.getMaxRows(), head.length).setNumberFormat('@');
   return sh;
 }
 function json(o) { return ContentService.createTextOutput(JSON.stringify(o)).setMimeType(ContentService.MimeType.JSON); }
@@ -50,7 +52,7 @@ function getAll() {
   const people = rows(ps).map(r => ({ id: s(r[0]), cat: s(r[1]), name: s(r[2]), group: s(r[3]), area: s(r[4]), phone: s(r[5]) })).filter(p => p.id && p.name);
   const att = {};
   rows(as).forEach(r => {
-    const date = s(r[1]), id = s(r[2]); if (!date || !id) return;
+    const key = s(r[0]); const date = key.indexOf('|') > 0 ? key.split('|')[0] : dstr(r[1]); const id = s(r[2]); if (!date || !id) return;
     const rec = {};
     if (s(r[3])) rec.in = s(r[3]);
     if (s(r[4])) rec.out = s(r[4]);
@@ -64,10 +66,15 @@ function getAll() {
   return { event, people, att, updated: new Date().toISOString() };
 }
 function rows(sh) { const n = sh.getLastRow(); return n < 2 ? [] : sh.getRange(2, 1, n - 1, sh.getLastColumn()).getValues(); }
+function tz() { return ss().getSpreadsheetTimeZone() || 'Asia/Seoul'; }
 function s(v) {
   if (v === null || v === undefined) return '';
-  if (v instanceof Date) return Utilities.formatDate(v, Session.getScriptTimeZone(), 'HH:mm');
+  if (v instanceof Date) return Utilities.formatDate(v, tz(), 'HH:mm');
   return String(v).trim();
+}
+function dstr(v) {
+  if (v instanceof Date) return Utilities.formatDate(v, tz(), 'yyyy-MM-dd');
+  return String(v || '').trim();
 }
 
 /* ---------- 쓰기 ---------- */
@@ -90,11 +97,8 @@ function upsertAtt(date, id, rec) {
   let at = -1; data.forEach((r, i) => { if (s(r[0]) === key) at = i + 2; });
   if (!rec) { if (at > 0) sh.deleteRow(at); return; }
   const row = [key, date, id, rec.in || '', rec.out || '', rec.absent ? 'Y' : '', rec.memo || ''];
-  if (at > 0) sh.getRange(at, 1, 1, A_HEAD.length).setValues([row]);
-  else sh.appendRow(row);
-  // 시각 칸이 날짜로 자동 변환되지 않도록 텍스트 서식
-  const r = at > 0 ? at : sh.getLastRow();
-  sh.getRange(r, 4, 1, 2).setNumberFormat('@');
+  const r = at > 0 ? at : sh.getLastRow() + 1;
+  sh.getRange(r, 1, 1, A_HEAD.length).setNumberFormat('@').setValues([row]);
 }
 function setEvent(v) {
   const sh = sheet(SHEETS.cfg, ['key', 'value']), data = rows(sh);
@@ -105,7 +109,7 @@ function replaceAll(d) {
   const ps = sheet(SHEETS.people, P_HEAD), as = sheet(SHEETS.att, A_HEAD);
   clearBody(ps); clearBody(as);
   const people = (d.people || []).map(p => [p.id, p.cat || '', p.name || '', p.group || '', p.area || '', p.phone || '']);
-  if (people.length) ps.getRange(2, 1, people.length, P_HEAD.length).setValues(people);
+  if (people.length) ps.getRange(2, 1, people.length, P_HEAD.length).setNumberFormat('@').setValues(people);
   const att = [];
   Object.keys(d.att || {}).forEach(date => Object.keys(d.att[date]).forEach(id => {
     const r = d.att[date][id] || {}; if (!Object.keys(r).length) return;
