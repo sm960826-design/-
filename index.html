@@ -210,7 +210,30 @@ const kdate=s=>{const [y,m,d]=s.split('-').map(Number);const w='일월화수목�
 let toastT;function toast(m){const t=$('toast');t.textContent=m;t.classList.add('show');clearTimeout(toastT);toastT=setTimeout(()=>t.classList.remove('show'),1600);}
 function uid(){return Math.random().toString(36).slice(2,8).toUpperCase()+Date.now().toString(36).slice(-3).toUpperCase();}
 function esc(s){return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
-function normalize(d){if(!d||!Array.isArray(d.people))return{event:'',people:[],att:{}};d.event=d.event||'';d.att=d.att||{};d.people.forEach(p=>{if(!CATS.includes(p.cat))p.cat=CATS[0];p.group=p.group||'';p.area=p.area||'';p.phone=p.phone||'';});return d;}
+function normDate(k){
+  const t=String(k).trim();
+  if(/^\d{4}-\d{2}-\d{2}$/.test(t))return t;
+  let m=t.match(/(\d{4})[.\-\/]\s*(\d{1,2})[.\-\/]\s*(\d{1,2})/);if(m)return `${m[1]}-${pad(m[2])}-${pad(m[3])}`;
+  const MON={Jan:1,Feb:2,Mar:3,Apr:4,May:5,Jun:6,Jul:7,Aug:8,Sep:9,Oct:10,Nov:11,Dec:12};
+  m=t.match(/(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+(\d{1,2})\s+(\d{4})/);if(m)return `${m[3]}-${pad(MON[m[1]])}-${pad(m[2])}`;
+  const d=new Date(t);if(!isNaN(d))return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
+  return null;
+}
+function normTime(v){
+  if(v===undefined||v===null||v==='')return '';
+  const t=String(v).trim();if(/^\d{2}:\d{2}$/.test(t))return t;
+  const m=t.match(/(\d{1,2}):(\d{2})/);if(m)return `${pad(m[1])}:${m[2]}`;
+  return '';
+}
+function normalize(d){
+  if(!d||!Array.isArray(d.people))return{event:'',people:[],att:{}};
+  d.event=d.event||'';const att={};
+  Object.keys(d.att||{}).forEach(k=>{const nk=normDate(k);if(!nk)return;const day=att[nk]=att[nk]||{};
+    Object.keys(d.att[k]).forEach(id=>{const r=d.att[k][id]||{};const o={};const i=normTime(r.in),u=normTime(r.out);if(i)o.in=i;if(u)o.out=u;if(r.absent)o.absent=true;if(r.memo)o.memo=String(r.memo);if(Object.keys(o).length)day[id]=Object.assign(day[id]||{},o);});});
+  d.att=att;
+  d.people.forEach(p=>{if(!CATS.includes(p.cat))p.cat=CATS[0];p.group=p.group||'';p.area=p.area||'';p.phone=p.phone||'';});
+  return d;
+}
 let db=(()=>{try{return normalize(JSON.parse(localStorage.getItem(KEY)));}catch(e){return normalize(null);}})();
 function save(){localStorage.setItem(KEY,JSON.stringify(db));}
 function rec(date,id){db.att[date]=db.att[date]||{};return db.att[date][id]=db.att[date][id]||{};}

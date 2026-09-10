@@ -1,4 +1,4 @@
-/* 자원봉사자 출석체크 — 구글 시트 저장용 스크립트
+/* 자원봉사자 출석체크 — 구글 시트 저장용 스크립트 (v3)
  * 이 파일 전체를 Apps Script 편집기에 붙여넣고 "웹 앱"으로 배포하면 됨.
  * 시트는 처음 접속 때 자동으로 만들어짐: 명단 / 출석 / 설정
  */
@@ -52,7 +52,7 @@ function getAll() {
   const people = rows(ps).map(r => ({ id: s(r[0]), cat: s(r[1]), name: s(r[2]), group: s(r[3]), area: s(r[4]), phone: s(r[5]) })).filter(p => p.id && p.name);
   const att = {};
   rows(as).forEach(r => {
-    const key = s(r[0]); const date = key.indexOf('|') > 0 ? key.split('|')[0] : dstr(r[1]); const id = s(r[2]); if (!date || !id) return;
+    const key = String(r[0] || ''); const date = key.indexOf('|') > 0 ? dstr(key.split('|')[0]) : dstr(r[1]); const id = String(r[2] || '').trim(); if (!date || !id) return;
     const rec = {};
     if (s(r[3])) rec.in = s(r[3]);
     if (s(r[4])) rec.out = s(r[4]);
@@ -67,14 +67,20 @@ function getAll() {
 }
 function rows(sh) { const n = sh.getLastRow(); return n < 2 ? [] : sh.getRange(2, 1, n - 1, sh.getLastColumn()).getValues(); }
 function tz() { return ss().getSpreadsheetTimeZone() || 'Asia/Seoul'; }
+function isDate(v) { return v && typeof v === 'object' && typeof v.getTime === 'function' && !isNaN(v.getTime()); }
 function s(v) {
   if (v === null || v === undefined) return '';
-  if (v instanceof Date) return Utilities.formatDate(v, tz(), 'HH:mm');
-  return String(v).trim();
+  if (isDate(v)) return Utilities.formatDate(v, tz(), 'HH:mm');
+  var t = String(v).trim();
+  var m = t.match(/(\d{1,2}):(\d{2})/); if (m && /GMT|\d{4}/.test(t)) return ('0' + m[1]).slice(-2) + ':' + m[2];
+  return t;
 }
 function dstr(v) {
-  if (v instanceof Date) return Utilities.formatDate(v, tz(), 'yyyy-MM-dd');
-  return String(v || '').trim();
+  if (isDate(v)) return Utilities.formatDate(v, tz(), 'yyyy-MM-dd');
+  var t = String(v || '').trim();
+  var m = t.match(/(\d{4})-(\d{2})-(\d{2})/); if (m) return m[0];
+  var d = new Date(t); if (!isNaN(d.getTime())) return Utilities.formatDate(d, tz(), 'yyyy-MM-dd');
+  return t;
 }
 
 /* ---------- 쓰기 ---------- */
@@ -98,7 +104,9 @@ function upsertAtt(date, id, rec) {
   if (!rec) { if (at > 0) sh.deleteRow(at); return; }
   const row = [key, date, id, rec.in || '', rec.out || '', rec.absent ? 'Y' : '', rec.memo || ''];
   const r = at > 0 ? at : sh.getLastRow() + 1;
-  sh.getRange(r, 1, 1, A_HEAD.length).setNumberFormat('@').setValues([row]);
+  const rng = sh.getRange(r, 1, 1, A_HEAD.length);
+  rng.setNumberFormat('@');
+  rng.setValues([row]);
 }
 function setEvent(v) {
   const sh = sheet(SHEETS.cfg, ['key', 'value']), data = rows(sh);
