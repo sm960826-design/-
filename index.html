@@ -195,6 +195,7 @@
     <input type="search" id="q" placeholder="이름·조 검색" style="width:180px">
     <select id="groupFilter" style="display:none"><option value="">전체 조</option></select>
     <div id="groupChips" class="chips"></div>
+    <button id="plannedToggle" class="small" style="display:none"></button>
     <select id="statusFilter"><option value="">전체 상태</option><option value="none">미체크</option><option value="in">출근(근무 중)</option><option value="out">퇴근 완료</option><option value="abs">결석</option><option value="plan">오늘 근무 예정</option><option value="planmiss">예정인데 미출근</option></select>
     <span style="flex:1"></span>
     <button id="printBtn">서명용 출석부 인쇄</button>
@@ -270,7 +271,7 @@
 <script>
 const KEY='volunteerAttendance_v2',APIKEY='attendApiUrl';
 const FIXED_API='https://script.google.com/macros/s/AKfycbyzotm4rfmivPPOV5xkzAWpholDZM7j4zXqFBAXZyE6X-dAKPeeylbTIR8fdzQgdRB-Eg/exec';
-const CATS=['환경관리','행사운영'];let cat=CATS[0];let sortKey='group',sortDir=1;
+const CATS=['환경관리','행사운영'];let cat=CATS[0];let sortKey='group',sortDir=1;let onlyPlanned=true;
 const $=id=>document.getElementById(id);
 const pad=n=>String(n).padStart(2,'0');
 const todayStr=()=>{const d=new Date();return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;};
@@ -312,7 +313,8 @@ function schedOf(date,id){return (db.sched[date]||{})[id]||'';}
 function rec(date,id){db.att[date]=db.att[date]||{};return db.att[date][id]=db.att[date][id]||{};}
 function statusOf(r){if(!r)return'none';if(r.absent)return'abs';if(r.out)return'out';if(r.in)return'in';return'none';}
 const STATUS_KO={none:'미체크',in:'출근',out:'퇴근',abs:'결석'};
-function sortedPeople(c){return [...db.people].filter(p=>!c||p.cat===c).sort((a,b)=>(a.group||'').localeCompare(b.group||'','ko')||a.name.localeCompare(b.name,'ko'));}
+const KO={numeric:true,sensitivity:'base'};
+function sortedPeople(c){return [...db.people].filter(p=>!c||p.cat===c).sort((a,b)=>(a.group||'\uffff').localeCompare(b.group||'\uffff','ko',KO)||a.name.localeCompare(b.name,'ko',KO));}
 
 /* ---------- 실시간 공유(구글 앱스 스크립트) ---------- */
 let API=FIXED_API;localStorage.setItem(APIKEY,API);
@@ -410,28 +412,32 @@ $('eDelete').onclick=()=>{const id=$('eId').value,p=db.people.find(x=>x.id===id)
 /* ---------- 출석 현황 ---------- */
 function render(){
   const date=$('date').value,att=db.att[date]||{};const people=sortedPeople(cat);
-  const groups=[...new Set(people.map(p=>p.group).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'ko'));
+  const groups=[...new Set(people.map(p=>p.group).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'ko',KO));
   const gsel=$('groupFilter'),cur=gsel.value;gsel.innerHTML='<option value="">전체 조</option>'+groups.map(g=>`<option ${g===cur?'selected':''}>${esc(g)}</option>`).join('');
   if(cur&&!groups.includes(cur))gsel.value='';
-  const gcount=g=>people.filter(p=>(g?p.group===g:true)).length;
+  const planOn=cat==='행사운영'&&onlyPlanned&&people.some(p=>schedOf(date,p.id));
+  const gcount=g=>people.filter(p=>(g?p.group===g:true)&&(!planOn||schedOf(date,p.id))).length;
   $('groupChips').innerHTML=[['','전체'],...groups.map(g=>[g,g])].map(([v,l])=>`<button class="${gsel.value===v?'on':''}" data-g="${esc(v)}">${esc(l)}<span class="n">${gcount(v)}</span></button>`).join('');
-  const cnt={none:0,in:0,out:0,abs:0};people.forEach(p=>cnt[statusOf(att[p.id])]++);const present=cnt.in+cnt.out;
-  $('stats').innerHTML=`<span class="stat">${cat} 총원<b>${people.length}</b></span><span class="stat">출석<b>${present}</b></span><span class="stat">근무 중<b>${cnt.in}</b></span><span class="stat warn">미체크<b>${cnt.none}</b></span><span class="stat off">결석<b>${cnt.abs}</b></span>${cat==='행사운영'?`<span class="stat">오늘 예정<b>${people.filter(p=>schedOf(date,p.id)).length}</b></span>`:''}`;
-  $('printHead').innerHTML=`<h2>${esc(db.event||'자원봉사자')} ${cat} 출석부</h2><p>일자: ${kdate(date)} &nbsp;|&nbsp; 총원 ${people.length}명, 출석 ${present}명, 결석 ${cnt.abs}명 &nbsp;|&nbsp; 확인자: ____________ (인)</p>`;
+  const basePeople=(cat==='행사운영'&&onlyPlanned&&people.some(p=>schedOf(date,p.id)))?people.filter(p=>schedOf(date,p.id)):people;
+  const cnt={none:0,in:0,out:0,abs:0};basePeople.forEach(p=>cnt[statusOf(att[p.id])]++);const present=cnt.in+cnt.out;
+  $('stats').innerHTML=`<span class="stat">${cat}${basePeople!==people?' 오늘 근무':' 총원'}<b>${basePeople.length}</b></span><span class="stat">출석<b>${present}</b></span><span class="stat">근무 중<b>${cnt.in}</b></span><span class="stat warn">미체크<b>${cnt.none}</b></span><span class="stat off">결석<b>${cnt.abs}</b></span>${cat==='행사운영'?`<span class="stat">오늘 예정<b>${people.filter(p=>schedOf(date,p.id)).length}</b></span>`:''}`;
+  $('printHead').innerHTML=`<h2>${esc(db.event||'자원봉사자')} ${cat} 출석부</h2><p>일자: ${kdate(date)} &nbsp;|&nbsp; ${basePeople!==people?'근무 예정':'총원'} ${basePeople.length}명, 출석 ${present}명, 결석 ${cnt.abs}명 &nbsp;|&nbsp; 확인자: ____________ (인)</p>`;
   const q=$('q').value.trim().toLowerCase(),gf=gsel.value,sf=$('statusFilter').value;
   $('statusFilter').querySelectorAll('option[value^="plan"]').forEach(o=>{o.hidden=cat!=='행사운영';});if(cat!=='행사운영'&&sf.startsWith('plan'))$('statusFilter').value='';
-  const sf2=$('statusFilter').value;const rows=people.filter(p=>!(gf&&p.group!==gf)&&(sf2==='plan'?!!schedOf(date,p.id):sf2==='planmiss'?(!!schedOf(date,p.id)&&statusOf(att[p.id])==='none'):!(sf2&&statusOf(att[p.id])!==sf2))&&!(q&&!(p.name+p.group+p.phone).toLowerCase().includes(q)));
+  const hasPlan=cat==='행사운영'&&people.some(p=>schedOf(date,p.id));
+  const pt=$('plannedToggle');pt.style.display=hasPlan?'':'none';if(hasPlan){pt.textContent=onlyPlanned?'오늘 근무자만 보는 중 · 전체 보기':'전체 보는 중 · 근무자만 보기';pt.className='small '+(onlyPlanned?'primary':'');}
+  const sf2=$('statusFilter').value;const rows=people.filter(p=>!(hasPlan&&onlyPlanned&&!schedOf(date,p.id))&&!(gf&&p.group!==gf)&&(sf2==='plan'?!!schedOf(date,p.id):sf2==='planmiss'?(!!schedOf(date,p.id)&&statusOf(att[p.id])==='none'):!(sf2&&statusOf(att[p.id])!==sf2))&&!(q&&!(p.name+p.group+p.phone).toLowerCase().includes(q)));
   if(!people.length){$('list').innerHTML=`<div class="empty">「명단 관리」에서 구분을 「${cat}」으로 해서 봉사자를 추가하면 여기에 표시됨</div>`;renderRoster();return;}
   const sc=k=>`sortable ${sortKey===k?(sortDir>0?'asc':'desc'):''}`;
   let h=`<table><thead><tr><th>#</th><th class="${sc('name')}" data-sort="name">이름</th><th class="${sc('group')}" data-sort="group">조</th><th class="${sc('in')}" data-sort="in">출근</th><th class="${sc('out')}" data-sort="out">퇴근</th><th class="acts">체크</th><th>비고</th><th class="print-sign">서명</th></tr></thead><tbody>`;
   const val=p=>{const r=att[p.id]||{};return sortKey==='name'?p.name:sortKey==='group'?(p.group||'\uffff')+p.name:sortKey==='in'?(r.in||'99:99'):(r.out||'99:99');};
-  rows.sort((a,b)=>val(a).localeCompare(val(b),'ko')*sortDir);
+  rows.sort((a,b)=>val(a).localeCompare(val(b),'ko',KO)*sortDir);
   rows.forEach((p,i)=>{const r=att[p.id]||{},s=statusOf(r);
     h+=`<tr class="status-${s}" data-id="${p.id}"><td>${i+1}</td><td class="name"><a href="#" data-edit="${p.id}">${esc(p.name)}</a>${(sh=>cat==='행사운영'&&sh?`<span class="plan ${SHIFT_CLS[sh]}">${sh}</span>`:'')(schedOf(date,p.id))}</td><td>${esc(p.group)}</td>
     <td class="time"><input type="time" lang="en-GB" class="tm" data-t="in" value="${r.in||''}" ${s==='abs'?'disabled':''}></td><td class="time"><input type="time" lang="en-GB" class="tm" data-t="out" value="${r.out||''}" ${s==='abs'||!r.in?'disabled':''}></td>
     <td class="acts">${s==='abs'?`<button class="small" data-act="reset">결석 취소</button>`:`<button class="small ${r.in?'done':'in'}" data-act="in">${r.in?'출근됨':'출근'}</button><button class="small ${r.out?'done':'out'}" data-act="out" ${r.in?'':'disabled'}>${r.out?'퇴근됨':'퇴근'}</button>${r.in?`<button class="small" data-act="reset" title="기록 지우기">↺</button>`:`<button class="small abs" data-act="abs">결석</button>`}`}</td>
     <td><input class="memo" data-memo="${p.id}" value="${esc(r.memo||'')}" placeholder="비고"></td><td class="sign"></td></tr>`;});
-  h+='</tbody></table>';if(!rows.length)h='<div class="empty">조건에 맞는 봉사자가 없음</div>';
+  h+='</tbody></table>';if(!rows.length)h=`<div class="empty">${hasPlan&&onlyPlanned?'이 조건에 해당하는 오늘 근무자가 없음':'조건에 맞는 봉사자가 없음'}</div>`;
   $('list').innerHTML=h;renderRoster();
 }
 function pushAtt(date,id){
@@ -439,6 +445,7 @@ function pushAtt(date,id){
   const key='A|'+date+'|'+id;markPending(key,rec);
   api('upsertAtt',{date,id,record:rec},key);
 }
+$('plannedToggle').onclick=()=>{onlyPlanned=!onlyPlanned;render();};
 $('groupChips').addEventListener('click',e=>{const b=e.target.closest('button[data-g]');if(!b)return;$('groupFilter').value=b.dataset.g;render();});
 $('list').addEventListener('click',e=>{
   const th=e.target.closest('th[data-sort]');if(th){const k=th.dataset.sort;if(sortKey===k)sortDir=-sortDir;else{sortKey=k;sortDir=1;}render();return;}
