@@ -134,6 +134,12 @@
     td.acts{white-space:normal}td.acts button{height:36px;padding:0;font-size:13px;min-width:0;width:54px;margin:2px 2px 2px 0}
     .side{gap:12px}.box{padding:16px;border-radius:14px}
   }
+  .chips{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+  .chips button{height:38px;padding:0 14px;font-size:13.5px;background:var(--soft)}
+  .chips button.on{background:var(--key);color:#fff}
+  .chips button .n{opacity:.6;margin-left:4px;font-weight:600}
+  th.sortable{cursor:pointer;user-select:none}th.sortable:hover{color:var(--ink)}
+  th.sortable.asc::after{content:" ↑"}th.sortable.desc::after{content:" ↓"}
   .schedwrap{overflow:auto;border-radius:18px;background:var(--soft);padding:2px}
   table.sched{border-radius:16px;min-width:100%;width:auto}
   table.sched th,table.sched td{padding:8px 6px;text-align:center;white-space:nowrap}
@@ -187,7 +193,8 @@
   <div class="print-only" id="printHead"></div>
   <div class="tools">
     <input type="search" id="q" placeholder="이름·조 검색" style="width:180px">
-    <select id="groupFilter"><option value="">전체 조</option></select>
+    <select id="groupFilter" style="display:none"><option value="">전체 조</option></select>
+    <div id="groupChips" class="chips"></div>
     <select id="statusFilter"><option value="">전체 상태</option><option value="none">미체크</option><option value="in">출근(근무 중)</option><option value="out">퇴근 완료</option><option value="abs">결석</option><option value="plan">오늘 근무 예정</option><option value="planmiss">예정인데 미출근</option></select>
     <span style="flex:1"></span>
     <button id="printBtn">서명용 출석부 인쇄</button>
@@ -263,7 +270,7 @@
 <script>
 const KEY='volunteerAttendance_v2',APIKEY='attendApiUrl';
 const FIXED_API='https://script.google.com/macros/s/AKfycbyzotm4rfmivPPOV5xkzAWpholDZM7j4zXqFBAXZyE6X-dAKPeeylbTIR8fdzQgdRB-Eg/exec';
-const CATS=['환경관리','행사운영'];let cat=CATS[0];
+const CATS=['환경관리','행사운영'];let cat=CATS[0];let sortKey='group',sortDir=1;
 const $=id=>document.getElementById(id);
 const pad=n=>String(n).padStart(2,'0');
 const todayStr=()=>{const d=new Date();return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;};
@@ -405,6 +412,9 @@ function render(){
   const date=$('date').value,att=db.att[date]||{};const people=sortedPeople(cat);
   const groups=[...new Set(people.map(p=>p.group).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'ko'));
   const gsel=$('groupFilter'),cur=gsel.value;gsel.innerHTML='<option value="">전체 조</option>'+groups.map(g=>`<option ${g===cur?'selected':''}>${esc(g)}</option>`).join('');
+  if(cur&&!groups.includes(cur))gsel.value='';
+  const gcount=g=>people.filter(p=>(g?p.group===g:true)).length;
+  $('groupChips').innerHTML=[['','전체'],...groups.map(g=>[g,g])].map(([v,l])=>`<button class="${gsel.value===v?'on':''}" data-g="${esc(v)}">${esc(l)}<span class="n">${gcount(v)}</span></button>`).join('');
   const cnt={none:0,in:0,out:0,abs:0};people.forEach(p=>cnt[statusOf(att[p.id])]++);const present=cnt.in+cnt.out;
   $('stats').innerHTML=`<span class="stat">${cat} 총원<b>${people.length}</b></span><span class="stat">출석<b>${present}</b></span><span class="stat">근무 중<b>${cnt.in}</b></span><span class="stat warn">미체크<b>${cnt.none}</b></span><span class="stat off">결석<b>${cnt.abs}</b></span>${cat==='행사운영'?`<span class="stat">오늘 예정<b>${people.filter(p=>schedOf(date,p.id)).length}</b></span>`:''}`;
   $('printHead').innerHTML=`<h2>${esc(db.event||'자원봉사자')} ${cat} 출석부</h2><p>일자: ${kdate(date)} &nbsp;|&nbsp; 총원 ${people.length}명, 출석 ${present}명, 결석 ${cnt.abs}명 &nbsp;|&nbsp; 확인자: ____________ (인)</p>`;
@@ -412,7 +422,10 @@ function render(){
   $('statusFilter').querySelectorAll('option[value^="plan"]').forEach(o=>{o.hidden=cat!=='행사운영';});if(cat!=='행사운영'&&sf.startsWith('plan'))$('statusFilter').value='';
   const sf2=$('statusFilter').value;const rows=people.filter(p=>!(gf&&p.group!==gf)&&(sf2==='plan'?!!schedOf(date,p.id):sf2==='planmiss'?(!!schedOf(date,p.id)&&statusOf(att[p.id])==='none'):!(sf2&&statusOf(att[p.id])!==sf2))&&!(q&&!(p.name+p.group+p.phone).toLowerCase().includes(q)));
   if(!people.length){$('list').innerHTML=`<div class="empty">「명단 관리」에서 구분을 「${cat}」으로 해서 봉사자를 추가하면 여기에 표시됨</div>`;renderRoster();return;}
-  let h='<table><thead><tr><th>#</th><th>이름</th><th>조</th><th>출근</th><th>퇴근</th><th class="acts">체크</th><th>비고</th><th class="print-sign">서명</th></tr></thead><tbody>';
+  const sc=k=>`sortable ${sortKey===k?(sortDir>0?'asc':'desc'):''}`;
+  let h=`<table><thead><tr><th>#</th><th class="${sc('name')}" data-sort="name">이름</th><th class="${sc('group')}" data-sort="group">조</th><th class="${sc('in')}" data-sort="in">출근</th><th class="${sc('out')}" data-sort="out">퇴근</th><th class="acts">체크</th><th>비고</th><th class="print-sign">서명</th></tr></thead><tbody>`;
+  const val=p=>{const r=att[p.id]||{};return sortKey==='name'?p.name:sortKey==='group'?(p.group||'\uffff')+p.name:sortKey==='in'?(r.in||'99:99'):(r.out||'99:99');};
+  rows.sort((a,b)=>val(a).localeCompare(val(b),'ko')*sortDir);
   rows.forEach((p,i)=>{const r=att[p.id]||{},s=statusOf(r);
     h+=`<tr class="status-${s}" data-id="${p.id}"><td>${i+1}</td><td class="name"><a href="#" data-edit="${p.id}">${esc(p.name)}</a>${(sh=>cat==='행사운영'&&sh?`<span class="plan ${SHIFT_CLS[sh]}">${sh}</span>`:'')(schedOf(date,p.id))}</td><td>${esc(p.group)}</td>
     <td class="time"><input type="time" lang="en-GB" class="tm" data-t="in" value="${r.in||''}" ${s==='abs'?'disabled':''}></td><td class="time"><input type="time" lang="en-GB" class="tm" data-t="out" value="${r.out||''}" ${s==='abs'||!r.in?'disabled':''}></td>
@@ -426,7 +439,9 @@ function pushAtt(date,id){
   const key='A|'+date+'|'+id;markPending(key,rec);
   api('upsertAtt',{date,id,record:rec},key);
 }
+$('groupChips').addEventListener('click',e=>{const b=e.target.closest('button[data-g]');if(!b)return;$('groupFilter').value=b.dataset.g;render();});
 $('list').addEventListener('click',e=>{
+  const th=e.target.closest('th[data-sort]');if(th){const k=th.dataset.sort;if(sortKey===k)sortDir=-sortDir;else{sortKey=k;sortDir=1;}render();return;}
   const b=e.target.closest('button[data-act]');
   if(b){const id=b.closest('tr').dataset.id,date=$('date').value,r=rec(date,id),p=db.people.find(x=>x.id===id);
     if(b.dataset.act==='in'&&!r.in){r.in=nowStr();delete r.absent;toast(`${p.name} 출근 ${r.in}`);}
