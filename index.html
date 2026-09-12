@@ -127,7 +127,8 @@
     .tab{padding:0 12px 40px}
     .tools{display:grid;grid-template-columns:1fr 1fr;gap:6px}.tools>*{width:100%!important;min-width:0}.tools>span{display:none}.tools #q{grid-column:1/-1;min-width:0}
     table{border-radius:14px}
-    th:nth-child(1),td:nth-child(1),th:nth-child(7),td:nth-child(7){display:none}
+    #list th:nth-child(1),#list td:nth-child(1),#list th:nth-child(7),#list td:nth-child(7){display:none}
+    table.sched th.nm,table.sched td.nm{min-width:96px;font-size:14px}table.sched th.d{min-width:56px}table.sched td.c span{min-width:40px}
     th,td{padding:10px 8px}
     td.name{font-size:16px;white-space:normal;word-break:keep-all}
     input.tm{width:88px;min-width:88px;font-size:15px;padding:0 4px;text-align:center;background:#fff}
@@ -323,7 +324,7 @@ function markPending(k,v){pending.set(k,{v,t:Date.now()});lastLocal=Date.now();}
 function mergePending(d){
   const now=Date.now();
   pending.forEach((o,k)=>{
-    if(now-o.t>20000){pending.delete(k);return;}
+    if(now-o.t>180000){pending.delete(k);return;}
     if(k==='__event'){d.event=o.v;return;}
     if(k.startsWith('C|')){d.cfg[k.slice(2)]=o.v;return;}
     if(k.startsWith('S|')){const [_,date,id]=k.split('|');if(!o.v){if(d.sched[date])delete d.sched[date][id];}else (d.sched[date]=d.sched[date]||{})[id]=o.v;return;}
@@ -336,29 +337,34 @@ function mergePending(d){
 }
 function clearPending(k){pending.delete(k);}
 function setSync(cls,msg){const e=$('sync');e.className='sync '+cls;e.textContent=msg;}
+let fails=0;const retryQ=[];let retryT=null;
+function fetchT(url,opt,ms){const c=new AbortController();const t=setTimeout(()=>c.abort(),ms);return fetch(url,Object.assign({},opt,{signal:c.signal})).finally(()=>clearTimeout(t));}
+async function send(action,payload){
+  const body=JSON.stringify({action,...payload});let j;
+  try{const res=await fetchT(API,{method:'POST',body},20000);j=await res.json();}
+  catch(_){const res2=await fetchT(API+'?payload='+encodeURIComponent(body)+'&t='+Date.now(),{},20000);j=await res2.json();}
+  if(j.error)throw new Error(j.error);return j;
+}
+function onOk(){fails=0;setSync('ok','실시간 연결됨 · '+nowStr());}
+function onFail(){fails++;if(fails>=3)setSync('err','서버 연결 불안정 — 재시도 중, 입력은 보관됨');else setSync('busy','재연결 중…');}
 async function api(action,payload,key){
   if(!API)return null;
   inflight++;setSync('busy','저장 중…');
-  try{
-    const body=JSON.stringify({action,...payload});
-    let j;
-    try{
-      const res=await fetch(API,{method:'POST',body});
-      j=await res.json();
-    }catch(_){
-      const res2=await fetch(API+'?payload='+encodeURIComponent(body)+'&t='+Date.now());
-      j=await res2.json();
-    }
-    if(j.error)throw new Error(j.error);
-    if(key)clearPending(key);
-    applyRemote(j);setSync('ok','실시간 연결됨 · '+nowStr());return j;
-  }catch(e){setSync('err','저장 실패 — 잠시 뒤 자동 재시도');toast('저장 실패, 인터넷 확인');return null;}
+  try{const j=await send(action,payload);if(key)clearPending(key);applyRemote(j);onOk();return j;}
+  catch(e){onFail();retryQ.push({action,payload,key,tries:0});scheduleRetry();return null;}
   finally{inflight--;}
 }
+function scheduleRetry(){if(retryT)return;retryT=setTimeout(async()=>{retryT=null;if(!retryQ.length)return;const it=retryQ.shift();inflight++;setSync('busy','저장 재시도 중…');
+  try{const j=await send(it.action,it.payload);if(it.key)clearPending(it.key);applyRemote(j);onOk();}
+  catch(e){onFail();it.tries++;if(it.tries<20)retryQ.push(it);else toast('저장이 계속 실패함 — 인터넷 확인 후 새로고침');}
+  finally{inflight--;if(retryQ.length)scheduleRetry();}},6000);}
+let pulling=false;
 async function pull(){
-  if(!API||inflight>0||document.hidden||Date.now()-lastLocal<3000)return;
-  try{const res=await fetch(API+'?t='+Date.now());const j=await res.json();if(j.error)throw new Error(j.error);applyRemote(j);setSync('ok','실시간 연결됨 · '+nowStr());}
-  catch(e){setSync('err','서버 연결 안 됨 — 이 기기 저장본 표시 중');}
+  if(!API||inflight>0||pulling||retryQ.length||document.hidden||Date.now()-lastLocal<4000)return;
+  pulling=true;
+  try{const res=await fetchT(API+'?t='+Date.now(),{},20000);const j=await res.json();if(j.error)throw new Error(j.error);applyRemote(j);onOk();}
+  catch(e){onFail();}
+  finally{pulling=false;}
 }
 function applyRemote(j){
   const d=mergePending(normalize(j));const changed=JSON.stringify(d)!==JSON.stringify(db);db=d;save();
@@ -368,7 +374,8 @@ function applyRemote(j){
   if($('eventInput')!==a)$('eventInput').value=db.event;
   $('eventName').textContent=db.event;render();renderSched();
 }
-function startPoll(){clearInterval(pollT);if(API){pull();pollT=setInterval(pull,5000);}}
+function startPoll(){clearInterval(pollT);if(API){pull();pollT=setInterval(pull,8000);}}
+window.addEventListener('online',()=>{setSync('busy','재연결 중…');pull();if(retryQ.length)scheduleRetry();});
 document.addEventListener('visibilitychange',()=>{if(!document.hidden)pull();});
 
 /* ---------- 탭 ---------- */
