@@ -1,8 +1,9 @@
-/* 자원봉사자 출석체크 — 구글 시트 저장용 스크립트 (v3)
+/* 자원봉사자 출석체크 — 구글 시트 저장용 스크립트 (v5)
  * 이 파일 전체를 Apps Script 편집기에 붙여넣고 "웹 앱"으로 배포하면 됨.
  * 시트는 처음 접속 때 자동으로 만들어짐: 명단 / 출석 / 설정
  */
-const SHEETS = { people: '명단', att: '출석', cfg: '설정' };
+const SHEETS = { people: '명단', att: '출석', cfg: '설정', sched: '근무표' };
+const S_HEAD = ['key', 'date', 'id', 'shift'];
 const P_HEAD = ['id', 'cat', 'name', 'group', 'area', 'phone'];
 const A_HEAD = ['key', 'date', 'id', 'in', 'out', 'absent', 'memo'];
 
@@ -34,7 +35,9 @@ function handle(raw) {
       case 'upsertPeople': upsertPeople(b.people || []); break;
       case 'deletePerson': deletePerson(b.id); break;
       case 'upsertAtt': upsertAtt(b.date, b.id, b.record); break;
-      case 'setEvent': setEvent(b.event || ''); break;
+      case 'setEvent': setCfg('event', b.event || ''); break;
+      case 'setCfg': setCfg(String(b.key || ''), b.value == null ? '' : String(b.value)); break;
+      case 'setSched': setSched(b.date, b.id, b.value || ''); break;
       case 'replaceAll': replaceAll(b.data || {}); break;
       default: return json({ error: 'unknown action: ' + b.action });
     }
@@ -61,9 +64,15 @@ function getAll() {
     if (!Object.keys(rec).length) return;
     (att[date] = att[date] || {})[id] = rec;
   });
-  let event = '';
-  rows(cs).forEach(r => { if (s(r[0]) === 'event') event = s(r[1]); });
-  return { event, people, att, updated: new Date().toISOString() };
+  const cfg = {};
+  rows(cs).forEach(r => { const k = String(r[0] || '').trim(); if (k) cfg[k] = (k === 'event') ? s(r[1]) : dstrOrText(r[1]); });
+  const event = cfg.event || '';
+  const sched = {};
+  rows(sheet(SHEETS.sched, S_HEAD)).forEach(r => {
+    const key = String(r[0] || ''); const date = key.indexOf('|') > 0 ? dstr(key.split('|')[0]) : dstr(r[1]); const id = String(r[2] || '').trim(); const v = String(r[3] || '').trim();
+    if (!date || !id || !v) return; (sched[date] = sched[date] || {})[id] = v;
+  });
+  return { event, cfg, people, att, sched, updated: new Date().toISOString() };
 }
 function rows(sh) { const n = sh.getLastRow(); return n < 2 ? [] : sh.getRange(2, 1, n - 1, sh.getLastColumn()).getValues(); }
 function tz() { return ss().getSpreadsheetTimeZone() || 'Asia/Seoul'; }
@@ -75,6 +84,7 @@ function s(v) {
   var m = t.match(/(\d{1,2}):(\d{2})/); if (m && /GMT|\d{4}/.test(t)) return ('0' + m[1]).slice(-2) + ':' + m[2];
   return t;
 }
+function dstrOrText(v) { return isDate(v) ? dstr(v) : String(v == null ? '' : v).trim(); }
 function dstr(v) {
   if (isDate(v)) return Utilities.formatDate(v, tz(), 'yyyy-MM-dd');
   var t = String(v || '').trim();
@@ -108,10 +118,20 @@ function upsertAtt(date, id, rec) {
   rng.setNumberFormat('@');
   rng.setValues([row]);
 }
-function setEvent(v) {
+function setCfg(k, v) {
+  if (!k) return;
   const sh = sheet(SHEETS.cfg, ['key', 'value']), data = rows(sh);
-  let at = -1; data.forEach((r, i) => { if (s(r[0]) === 'event') at = i + 2; });
-  if (at > 0) sh.getRange(at, 2).setValue(v); else sh.appendRow(['event', v]);
+  let at = -1; data.forEach((r, i) => { if (String(r[0] || '').trim() === k) at = i + 2; });
+  const r = at > 0 ? at : sh.getLastRow() + 1;
+  sh.getRange(r, 1, 1, 2).setNumberFormat('@').setValues([[k, v]]);
+}
+function setEvent(v) { setCfg('event', v); }
+function setSched(date, id, v) {
+  const sh = sheet(SHEETS.sched, S_HEAD), key = date + '|' + id, data = rows(sh);
+  let at = -1; data.forEach((r, i) => { if (String(r[0] || '') === key) at = i + 2; });
+  if (!v) { if (at > 0) sh.deleteRow(at); return; }
+  const r = at > 0 ? at : sh.getLastRow() + 1;
+  sh.getRange(r, 1, 1, S_HEAD.length).setNumberFormat('@').setValues([[key, date, id, v]]);
 }
 function replaceAll(d) {
   const ps = sheet(SHEETS.people, P_HEAD), as = sheet(SHEETS.att, A_HEAD);
@@ -124,7 +144,12 @@ function replaceAll(d) {
     att.push([date + '|' + id, date, id, r.in || '', r.out || '', r.absent ? 'Y' : '', r.memo || '']);
   }));
   if (att.length) { as.getRange(2, 1, att.length, A_HEAD.length).setNumberFormat('@').setValues(att); }
+  const ss_ = sheet(SHEETS.sched, S_HEAD); clearBody(ss_);
+  const sc = [];
+  Object.keys(d.sched || {}).forEach(date => Object.keys(d.sched[date]).forEach(id => { const v = d.sched[date][id]; if (v) sc.push([date + '|' + id, date, id, v]); }));
+  if (sc.length) ss_.getRange(2, 1, sc.length, S_HEAD.length).setNumberFormat('@').setValues(sc);
   setEvent(d.event || '');
+  Object.keys(d.cfg || {}).forEach(k => { if (k !== 'event') setCfg(k, d.cfg[k]); });
 }
 function clearBody(sh) { const n = sh.getLastRow(); if (n > 1) sh.deleteRows(2, n - 1); }
 function deleteRowsWhere(sh, pred) {
