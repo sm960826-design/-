@@ -352,14 +352,18 @@ const writeQ=new Map();let qBusy=false,qSeq=0,qTimer=null;
 function api(action,payload,key){
   if(!API)return Promise.resolve(null);
   const k=key||('_'+(++qSeq));
-  return new Promise(res=>{const prev=writeQ.get(k);if(prev)prev.res(null);writeQ.set(k,{action,payload,key,res,tries:0});
-    clearTimeout(qTimer);qTimer=setTimeout(runQ,key&&key.startsWith('S|')?500:120);});
+  return new Promise(res=>{const prev=writeQ.get(k);if(prev)prev.res(null);writeQ.set(k,{action,payload,key,res,tries:0,stamp:Date.now()});
+    clearTimeout(qTimer);qTimer=setTimeout(runQ,key&&key.startsWith('S|')?400:120);});
 }
 async function runQ(){
   if(qBusy||!writeQ.size)return;qBusy=true;inflight++;
   const [k,it]=writeQ.entries().next().value;writeQ.delete(k);
   setSync('busy','저장 중…');
-  try{const j=await send(it.action,it.payload);if(it.key)clearPending(it.key);applyRemote(j);onOk();it.res(j);}
+  try{const j=await send(it.action,it.payload);
+    // 보내는 동안 같은 항목이 또 바뀌었으면(대기열에 새 값이 있거나 pending이 더 최신) 이번 응답으로 덮지 않음
+    const pe=it.key&&pending.get(it.key);const superseded=it.key&&(writeQ.has(it.key)||(pe&&pe.t>it.stamp));
+    if(it.key&&!superseded)clearPending(it.key);
+    applyRemote(j);onOk();it.res(j);}
   catch(e){onFail();it.tries++;
     if(it.tries<20&&!writeQ.has(k))writeQ.set(k,it);else it.res(null);
     if(it.tries>=20)toast('저장이 계속 실패함 — 인터넷 확인 후 새로고침');}
