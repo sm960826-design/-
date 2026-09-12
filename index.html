@@ -337,30 +337,37 @@ function mergePending(d){
 }
 function clearPending(k){pending.delete(k);}
 function setSync(cls,msg){const e=$('sync');e.className='sync '+cls;e.textContent=msg;}
-let fails=0;const retryQ=[];let retryT=null;
+let fails=0;
 function fetchT(url,opt,ms){const c=new AbortController();const t=setTimeout(()=>c.abort(),ms);return fetch(url,Object.assign({},opt,{signal:c.signal})).finally(()=>clearTimeout(t));}
 async function send(action,payload){
   const body=JSON.stringify({action,...payload});let j;
-  try{const res=await fetchT(API,{method:'POST',body},20000);j=await res.json();}
-  catch(_){const res2=await fetchT(API+'?payload='+encodeURIComponent(body)+'&t='+Date.now(),{},20000);j=await res2.json();}
+  try{const res=await fetchT(API,{method:'POST',body},25000);j=await res.json();}
+  catch(_){const res2=await fetchT(API+'?payload='+encodeURIComponent(body)+'&t='+Date.now(),{},25000);j=await res2.json();}
   if(j.error)throw new Error(j.error);return j;
 }
 function onOk(){fails=0;setSync('ok','실시간 연결됨 · '+nowStr());}
-function onFail(){fails++;if(fails>=3)setSync('err','서버 연결 불안정 — 재시도 중, 입력은 보관됨');else setSync('busy','재연결 중…');}
-async function api(action,payload,key){
-  if(!API)return null;
-  inflight++;setSync('busy','저장 중…');
-  try{const j=await send(action,payload);if(key)clearPending(key);applyRemote(j);onOk();return j;}
-  catch(e){onFail();retryQ.push({action,payload,key,tries:0});scheduleRetry();return null;}
-  finally{inflight--;}
+function onFail(){fails++;if(fails>=3)setSync('err','서버 응답 지연 — 자동 재시도 중, 입력은 보관됨');else setSync('busy','재시도 중…');}
+/* 저장 대기열: 한 번에 하나씩, 같은 항목 연타는 마지막 값만 */
+const writeQ=new Map();let qBusy=false,qSeq=0,qTimer=null;
+function api(action,payload,key){
+  if(!API)return Promise.resolve(null);
+  const k=key||('_'+(++qSeq));
+  return new Promise(res=>{const prev=writeQ.get(k);if(prev)prev.res(null);writeQ.set(k,{action,payload,key,res,tries:0});
+    clearTimeout(qTimer);qTimer=setTimeout(runQ,key&&key.startsWith('S|')?500:120);});
 }
-function scheduleRetry(){if(retryT)return;retryT=setTimeout(async()=>{retryT=null;if(!retryQ.length)return;const it=retryQ.shift();inflight++;setSync('busy','저장 재시도 중…');
-  try{const j=await send(it.action,it.payload);if(it.key)clearPending(it.key);applyRemote(j);onOk();}
-  catch(e){onFail();it.tries++;if(it.tries<20)retryQ.push(it);else toast('저장이 계속 실패함 — 인터넷 확인 후 새로고침');}
-  finally{inflight--;if(retryQ.length)scheduleRetry();}},6000);}
+async function runQ(){
+  if(qBusy||!writeQ.size)return;qBusy=true;inflight++;
+  const [k,it]=writeQ.entries().next().value;writeQ.delete(k);
+  setSync('busy','저장 중…');
+  try{const j=await send(it.action,it.payload);if(it.key)clearPending(it.key);applyRemote(j);onOk();it.res(j);}
+  catch(e){onFail();it.tries++;
+    if(it.tries<20&&!writeQ.has(k))writeQ.set(k,it);else it.res(null);
+    if(it.tries>=20)toast('저장이 계속 실패함 — 인터넷 확인 후 새로고침');}
+  finally{qBusy=false;inflight--;if(writeQ.size)qTimer=setTimeout(runQ,fails?4000:150);}
+}
 let pulling=false;
 async function pull(){
-  if(!API||inflight>0||pulling||retryQ.length||document.hidden||Date.now()-lastLocal<4000)return;
+  if(!API||inflight>0||pulling||writeQ.size||document.hidden||Date.now()-lastLocal<4000)return;
   pulling=true;
   try{const res=await fetchT(API+'?t='+Date.now(),{},20000);const j=await res.json();if(j.error)throw new Error(j.error);applyRemote(j);onOk();}
   catch(e){onFail();}
@@ -375,7 +382,7 @@ function applyRemote(j){
   $('eventName').textContent=db.event;render();renderSched();
 }
 function startPoll(){clearInterval(pollT);if(API){pull();pollT=setInterval(pull,8000);}}
-window.addEventListener('online',()=>{setSync('busy','재연결 중…');pull();if(retryQ.length)scheduleRetry();});
+window.addEventListener('online',()=>{setSync('busy','재연결 중…');pull();if(writeQ.size)runQ();});
 document.addEventListener('visibilitychange',()=>{if(!document.hidden)pull();});
 
 /* ---------- 탭 ---------- */
@@ -501,7 +508,7 @@ function renderSched(){
   h+='</tbody><tfoot><tr><td class="nm">일별 인원</td>'+colTot.map(n=>`<td>${n||''}</td>`).join('')+`<td>${colTot.reduce((x,y)=>x+y,0)}</td></tr></tfoot></table>`;
   g.innerHTML=h;
 }
-function setPeriod(){const a=$('schedStart').value,b=$('schedEnd').value;if(!a||!b)return;db.cfg.schedStart=a;db.cfg.schedEnd=b;save();renderSched();markPending('C|schedStart',a);markPending('C|schedEnd',b);api('setCfg',{key:'schedStart',value:a},'C|schedStart').then(()=>api('setCfg',{key:'schedEnd',value:b},'C|schedEnd'));}
+function setPeriod(){const a=$('schedStart').value,b=$('schedEnd').value;if(!a||!b)return;db.cfg.schedStart=a;db.cfg.schedEnd=b;save();renderSched();markPending('C|schedStart',a);markPending('C|schedEnd',b);api('setCfg',{key:'schedStart',value:a},'C|schedStart');api('setCfg',{key:'schedEnd',value:b},'C|schedEnd');}
 $('schedStart').onchange=setPeriod;$('schedEnd').onchange=setPeriod;
 $('schedGrid').addEventListener('click',e=>{
   const td=e.target.closest('td.c');if(!td)return;
