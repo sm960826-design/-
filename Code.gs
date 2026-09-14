@@ -1,4 +1,4 @@
-/* 자원봉사자 출석체크 — 구글 시트 저장용 스크립트 (v5)
+/* 자원봉사자 출석체크 — 구글 시트 저장용 스크립트 (v6)
  * 이 파일 전체를 Apps Script 편집기에 붙여넣고 "웹 앱"으로 배포하면 됨.
  * 시트는 처음 접속 때 자동으로 만들어짐: 명단 / 출석 / 설정
  */
@@ -7,13 +7,17 @@ const S_HEAD = ['key', 'date', 'id', 'shift'];
 const P_HEAD = ['id', 'cat', 'name', 'group', 'area', 'phone'];
 const A_HEAD = ['key', 'date', 'id', 'in', 'out', 'absent', 'memo'];
 
-function ss() { return SpreadsheetApp.getActiveSpreadsheet(); }
+var _ss = null, _sheets = {};
+function ss() { return _ss || (_ss = SpreadsheetApp.getActiveSpreadsheet()); }
 function sheet(name, head) {
+  if (_sheets[name]) return _sheets[name];
   let sh = ss().getSheetByName(name);
-  if (!sh) { sh = ss().insertSheet(name); sh.appendRow(head); sh.setFrozenRows(1); }
-  // 날짜·시각이 자동 변환되지 않도록 항상 텍스트 서식 유지
-  sh.getRange(1, 1, sh.getMaxRows(), head.length).setNumberFormat('@');
-  return sh;
+  if (!sh) {
+    sh = ss().insertSheet(name); sh.appendRow(head); sh.setFrozenRows(1);
+    // 시트 생성 시 한 번만: 날짜·시각 자동 변환 방지용 텍스트 서식
+    sh.getRange(1, 1, sh.getMaxRows(), head.length).setNumberFormat('@');
+  }
+  return _sheets[name] = sh;
 }
 function json(o) { return ContentService.createTextOutput(JSON.stringify(o)).setMimeType(ContentService.MimeType.JSON); }
 
@@ -29,7 +33,7 @@ function doPost(e) { return handle(e.postData.contents || '{}'); }
 function handle(raw) {
   const lock = LockService.getScriptLock();
   try {
-    lock.waitLock(15000);
+    lock.waitLock(8000);
     const b = JSON.parse(raw);
     switch (b.action) {
       case 'upsertPeople': upsertPeople(b.people || []); break;
@@ -74,7 +78,7 @@ function getAll() {
   });
   return { event, cfg, people, att, sched, updated: new Date().toISOString() };
 }
-function rows(sh) { const n = sh.getLastRow(); return n < 2 ? [] : sh.getRange(2, 1, n - 1, sh.getLastColumn()).getValues(); }
+function rows(sh) { const n = sh.getLastRow(), c = sh.getLastColumn(); return (n < 2 || c < 1) ? [] : sh.getRange(2, 1, n - 1, c).getValues(); }
 function tz() { return ss().getSpreadsheetTimeZone() || 'Asia/Seoul'; }
 function isDate(v) { return v && typeof v === 'object' && typeof v.getTime === 'function' && !isNaN(v.getTime()); }
 function s(v) {
